@@ -1,37 +1,93 @@
 # IKEv2 VPN Server on Docker
 
-Recipe to build [`gaomd/ikev2-vpn-server`](https://registry.hub.docker.com/u/gaomd/ikev2-vpn-server/) Docker image.
+[![Build Status](https://img.shields.io/docker/build/commure/docker-ikev2-vpn-server.svg)](https://hub.docker.com/r/commure/docker-ikev2-vpn-server/builds/)
+[![Downloads](https://img.shields.io/docker/pulls/commure/docker-ikev2-vpn-server.svg)](https://hub.docker.com/r/commure/docker-ikev2-vpn-server/)
+
+Recipe to build the [`commure/docker-ikev2-vpn-server`](https://hub.docker.com/r/commure/docker-ikev2-vpn-server/) Docker image (forked from [gaomd/docker-ikev2-vpn-server](https://github.com/gaomd/docker-ikev2-vpn-server)).
 
 ## Usage
 
-### 1. Start the IKEv2 VPN Server
+This image is designed for testing with an Azure VPN Gateway, so relies on some
+pretty specific network settings. Only shared secret authentication is
+supported.
 
-    docker run --privileged -d --name ikev2-vpn-server --restart=always -p 500:500/udp -p 4500:4500/udp gaomd/ikev2-vpn-server:0.3.0
+### 1. Create Docker Network
 
-### 2. Generate the .mobileconfig (for iOS / macOS)
+Create a Docker network with a specific subnet. For example:
 
-    docker run --privileged -i -t --rm --volumes-from ikev2-vpn-server -e "HOST=vpn1.example.com" gaomd/ikev2-vpn-server:0.3.0 generate-mobileconfig > ikev2-vpn.mobileconfig
+```
+docker network create azure_test --subnet=192.133.0.0/16
+```
 
-*Be sure to replace `vpn1.example.com` with your own domain name and resolve it to you server's IP address. Simply put an IP address is supported as well (and enjoy an even faster handshake speed).*
+### 2. Quickstart
 
-Transfer the generated `ikev2-vpn.mobileconfig` file to your local computer via SSH tunnel (`scp`) or any other secure methods.
+The container must be privileged and run with a specific IP address, for example:
 
-### 3. Install the .mobileconfig (for iOS / macOS)
+```
+docker run --privileged -d \
+  --name vpn \
+  --restart=unless-stopped \
+  -p 500:500/udp \
+  -p 4500:4500/udp \
+  --network azure_test \
+  --ip 192.133.0.254 \
+  --env IPSEC_LEFT=192.133.0.254 \
+  --env IPSEC_RIGHT=13.64.198.33 \
+  --env IPSEC_RIGHT_SUBNET=10.3.0.0/24,10.3.200.0/29 \
+  --env IPSEC_SHARED_SECRETS=": PSK abc123" \
+  commure/docker-ikev2-vpn-server
+```
 
-- **iOS 9 or later**: AirDrop the `.mobileconfig` file to your iOS 9 device, finish the **Install Profile** screen;
+## Configuration
 
-- **macOS 10.11 El Capitan or later**: Double click the `.mobileconfig` file to start the *profile installation* wizard.
+### Parameters
 
-## Technical Details
+> `IPSEC_LEFT`
 
-Upon container creation, a *shared secret* was generated for authentication purpose, no *certificate*, *username*, or *password* was ever used, simple life!
+IP address of the VPN server on the Docker network. This _must_ match the
+value of the `--ip` parameter.
+
+> `IPSEC_RIGHT`
+
+Public IP address of the Azure VPN Gateway.
+
+> `IPSEC_RIGHT_SUBNET`
+
+Comma separated list of subnets behind the Azure VPN Gateway. Hosts
+on these subnets will have VPN access.
+
+> `IPSEC_SHARED_SECRETS`
+
+Contents of the `ipsec.secrets` file (see below).
+
+### Secrets
+
+There are two ways to specify the contents of the IPSec secrets file. First,
+you can mount a secrets file as a volume by adding the following to the `docker run` command:
+
+```
+-v /path/to/ipsec.secrets:/etc/ipsec.secrets
+```
+
+The second way is to specify the file contents in an environments variable
+called `IPSEC_SHARED_SECRETS`. For example, by adding the following to the
+`docker run` command:
+
+```
+--env IPSEC_SHARED_SECRETS=": PSK abc123"
+```
+
+This will create a shared secret with value `abc123`, available to all clients.
+
+If you do not mount a file or specify the environment variable, a random shared
+secret will be generated for you. So see its value, run:
+
+```
+docker exec -it vpn cat /etc/ipsec.secrets
+```
 
 ## License
 
-Copyright (c) 2016 Mengdi Gao, This software is licensed under the [MIT License](LICENSE).
+This software is licensed under the [MIT License](LICENSE).
 
----
-
-\* IKEv2 protocol requires iOS 8 or later, macOS 10.11 El Capitan or later.
-
-\* Install for **iOS 8 or later** or when your AirDrop fails: Send an E-mail to your iOS device with the `.mobileconfig` file as attachment, then tap the attachment to bring up and finish the **Install Profile** screen.
+See also [original repo](https://github.com/gaomd/docker-ikev2-vpn-server).

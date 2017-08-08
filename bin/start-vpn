@@ -2,7 +2,7 @@
 
 # The MIT License (MIT)
 #
-# Copyright (c) 2016 Mengdi Gao
+# Copyright (c) 2017 Commure (Based on 2016 version by Mengdi Gao)
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -32,9 +32,54 @@ iptables -t nat -A POSTROUTING -s 10.8.0.0/16 -o eth0 -j MASQUERADE
 ip6tables -t nat -A POSTROUTING -s fd6a:6ce3:c8d8:7caa::/64 -o eth0 -m policy --dir out --pol ipsec -j ACCEPT
 ip6tables -t nat -A POSTROUTING -s fd6a:6ce3:c8d8:7caa::/64 -o eth0 -j MASQUERADE
 
-# hotfix for openssl `unable to write 'random state'` stderr
-SHARED_SECRET="123$(openssl rand -base64 32 2>/dev/null)"
-[ -f /etc/ipsec.secrets ] || echo ": PSK \"${SHARED_SECRET}\"" > /etc/ipsec.secrets
+if [ -f /etc/ipsec.secrets ]
+then
+    # do nothing if secrets file exists
+    echo "Using existing /etc/ipsec.secrets file"
+elif [[ -n $IPSEC_SHARED_SECRETS ]]
+then
+    # use environment variable if set
+    echo "Generating /etc/ipsec.secrets file from IPSEC_SHARED_SECRETS"
+
+    echo "$IPSEC_SHARED_SECRETS" > /etc/ipsec.secrets
+else
+    # otherwise generate random shared secret
+    echo "Generating random /etc/ipsec.secrets file"
+
+    # hotfix for openssl `unable to write 'random state'` stderr
+    SHARED_SECRET="123$(openssl rand -base64 32 2>/dev/null)"
+    echo ": PSK \"${SHARED_SECRET}\"" > /etc/ipsec.secrets
+fi
+
+# create config
+cat <<EOF > /etc/ipsec.conf
+# /etc/ipsec.conf - strongSwan IPsec configuration file
+#
+# Based on http://www.strongswan.org/uml/testresults/ikev2/rw-psk-ipv4/
+
+config setup
+
+conn %default
+    left=%defaultroute
+    ikelifetime=60m
+    keylife=20m
+    rekeymargin=3m
+    keyingtries=1
+    keyexchange=ikev2
+    authby=secret
+
+conn rw
+    authby=secret
+    auto=start
+    type=tunnel
+    left=${IPSEC_LEFT:-192.133.0.254}
+    leftsubnet=0.0.0.0/0,::/0
+    right=${IPSEC_RIGHT:-13.64.198.33}
+    rightsubnet=${IPSEC_RIGHT_SUBNET:-10.3.0.0/24,10.3.200.0/29}
+    rightsourceip=10.8.0.0/16,fd6a:6ce3:c8d8:7caa::/64
+    ike=3des-sha1-modp1024,aes128-sha1-modp1024
+    esp=3des-sha1,aes128-sha1
+EOF
 
 # hotfix for https://github.com/gaomd/docker-ikev2-vpn-server/issues/7
 rm -f /var/run/starter.charon.pid
