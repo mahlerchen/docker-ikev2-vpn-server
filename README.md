@@ -35,8 +35,12 @@ docker run --privileged -d \
   --env IPSEC_RIGHT=13.64.198.33 \
   --env IPSEC_RIGHT_SUBNET=10.3.0.0/24,10.3.200.0/29 \
   --env IPSEC_SHARED_SECRETS=": PSK abc123" \
+  -v /lib/modules:/lib/modules:ro \
   commure/docker-ikev2-vpn-server
 ```
+
+:pushpin: Note the required volume giving the container read access to the host's
+kernel modules.
 
 ## Configuration
 
